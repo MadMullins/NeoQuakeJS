@@ -1,0 +1,22 @@
+{
+  "name": "neoquakejs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:client\" \"npm:content\"",
+    "dev:client": "vite --host 0.0.0.0",
+    "content": "node server/content.js",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "buffer-crc32": "^0.2.13",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^5.4.10"
+  }
+}

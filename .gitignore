@@ -1,0 +1,12 @@
+quakejs-master/
+node_modules/
+dist/
+.vite/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+assets/**
+!assets/.gitkeep
+base/

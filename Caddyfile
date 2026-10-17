@@ -1,0 +1,15 @@
+{$PUBLIC_URL} {
+	@vite_hmr path /vite-hmr
+	reverse_proxy @vite_hmr neoquakejs:5173
+
+	@quake_websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @quake_websocket game:27960
+
+	@content_api path /assets/*
+	reverse_proxy @content_api content:9000
+
+	reverse_proxy neoquakejs:5173
+}

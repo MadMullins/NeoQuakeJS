@@ -1,0 +1,107 @@
+services:
+  neoquakejs:
+    build:
+      context: .
+    container_name: neoquakejs
+    command: npm run dev:client
+    environment:
+      NODE_ENV: development
+      VITE_PUBLIC_URL: ${PUBLIC_URL:-http://localhost}
+    volumes:
+      - type: bind
+        source: .
+        target: /app
+      - type: volume
+        target: /app/node_modules
+    depends_on:
+      content:
+        condition: service_healthy
+
+  content:
+    build:
+      context: .
+    command: npm run content
+    environment:
+      ASSET_ROOT: /assets
+      PORT: 9000
+    volumes:
+      - type: bind
+        source: .
+        target: /app
+      - type: volume
+        target: /app/node_modules
+      - type: bind
+        source: ./assets
+        target: /assets
+        read_only: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9000/assets/manifest.json').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  game:
+    build:
+      context: .
+    container_name: neoquakejs-game
+    command:
+      - node
+      - server/ioq3ded.cjs
+      - +set
+      - fs_game
+      - baseq3
+      - +set
+      - dedicated
+      - "1"
+      - +set
+      - fs_cdn
+      - content:9000
+      - +set
+      - net_port
+      - "27960"
+      - +map
+      - q3dm1
+    ports:
+      - "${GAME_PORT:-27960}:27960"
+    volumes:
+      - type: volume
+        source: game-base
+        target: /app/base
+    depends_on:
+      content:
+        condition: service_healthy
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - type: bind
+        source: ./Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - type: volume
+        source: caddy-data
+        target: /data
+      - type: volume
+        source: caddy-config
+        target: /config
+    depends_on:
+      - neoquakejs
+      - content
+      - game
+
+volumes:
+  caddy-data:
+  caddy-config:
+  game-base:
