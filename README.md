@@ -50,6 +50,8 @@ Caddy obtains and renews the HTTPS certificate automatically when the domain poi
 
 Compose mounts `./assets` read-only at `/assets` in the content service. The dedicated server fetches packages from that service and stores its writable game state in the named `game-base` volume at `/app/base`. Caddy’s `Caddyfile` is mounted read-only; its certificate data and config use the `caddy-data` and `caddy-config` volumes. Private `.env` files are excluded from Docker build contexts.
 
+The content service computes CRC and gzip-size metadata on its first scan, then stores it in the named `content-cache` volume. Later starts reuse metadata for unchanged files and refresh it when an asset changes. `docker compose ps` reports health for the web client, content API, and game WebSocket listener; Caddy waits for those services to become healthy before starting.
+
 For a direct non-TLS connection, connect to `SERVER:${GAME_PORT}` (default `27960`). When using Caddy over HTTPS, connect through secure port `443`, for example `https://quake.example.com/?connect%20quake.example.com:443`.
 
 ## Production build

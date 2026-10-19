@@ -4,6 +4,7 @@ npm-debug.log
 .gitignore
 dist
 .vite
+.cache
 .DS_Store
 .env
 .env.*

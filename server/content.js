@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +10,8 @@ import crc32 from 'buffer-crc32';
 
 const assetRoot = path.resolve(process.env.ASSET_ROOT || 'assets');
 const port = Number(process.env.PORT || 9000);
+const manifestCachePath = path.resolve(process.env.MANIFEST_CACHE_PATH || '.cache/content-manifest.json');
+const manifestCacheVersion = 1;
 const servedExtensions = new Set(['.pk3', '.run', '.sh']);
 
 async function findAssets(directory) {
@@ -72,7 +74,36 @@ async function getAssetMetadata(filePath, root) {
   };
 }
 
-async function getAssetRecords(root) {
+async function readManifestCache(cachePath) {
+  try {
+    const cache = JSON.parse(await readFile(cachePath, 'utf8'));
+    if (cache.version === manifestCacheVersion && cache.entries && typeof cache.entries === 'object') {
+      return new Map(Object.entries(cache.entries));
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+      console.warn('Could not read asset manifest cache:', error.message);
+    }
+  }
+
+  return new Map();
+}
+
+async function writeManifestCache(cachePath, entries) {
+  const temporaryPath = `${cachePath}.${process.pid}.tmp`;
+  try {
+    await mkdir(path.dirname(cachePath), { recursive: true });
+    await writeFile(temporaryPath, JSON.stringify({
+      version: manifestCacheVersion,
+      entries: Object.fromEntries(entries),
+    }));
+    await rename(temporaryPath, cachePath);
+  } catch (error) {
+    console.warn('Could not write asset manifest cache:', error.message);
+  }
+}
+
+async function getAssetRecords(root, cachePath = manifestCachePath) {
   const files = (await findAssets(root)).sort();
   const filesByName = new Map();
 
@@ -87,19 +118,45 @@ async function getAssetRecords(root) {
     }
   }
 
+  const cachedEntries = await readManifestCache(cachePath);
+  const nextCache = new Map();
   const records = [];
+  let cacheHits = 0;
+  let cacheMisses = 0;
   for (const filePath of filesByName.values()) {
+    const name = getManifestName(filePath, root);
+    const details = await stat(filePath, { bigint: true });
+    const signature = [details.dev, details.ino, details.size, details.mtimeNs, details.ctimeNs]
+      .map(String)
+      .join(':');
+    const cached = cachedEntries.get(name);
+    const cacheHit = cached?.signature === signature;
+    if (cacheHit) cacheHits += 1;
+    else cacheMisses += 1;
+
+    const metadata = cacheHit
+      ? { name, compressed: cached.compressed, checksum: cached.checksum, size: cached.size }
+      : await getAssetMetadata(filePath, root);
+
+    nextCache.set(name, {
+      signature,
+      compressed: metadata.compressed,
+      checksum: metadata.checksum,
+      size: metadata.size,
+    });
     records.push({
-      ...await getAssetMetadata(filePath, root),
+      ...metadata,
       filePath,
     });
   }
 
+  await writeManifestCache(cachePath, nextCache);
+  console.log(`Asset manifest ready: ${cacheHits} cached, ${cacheMisses} processed`);
   return records.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export async function buildManifest(root = assetRoot) {
-  const records = await getAssetRecords(root);
+export async function buildManifest(root = assetRoot, cachePath = manifestCachePath) {
+  const records = await getAssetRecords(root, cachePath);
   return records.map(({ filePath, ...entry }) => entry);
 }
 
@@ -111,9 +168,9 @@ function sendText(response, status, message) {
   response.end(message);
 }
 
-export async function createContentServer({ root = assetRoot } = {}) {
+export async function createContentServer({ root = assetRoot, cachePath = manifestCachePath } = {}) {
   const resolvedRoot = path.resolve(root);
-  const records = await getAssetRecords(resolvedRoot);
+  const records = await getAssetRecords(resolvedRoot, cachePath);
   const manifest = records.map(({ filePath, ...entry }) => entry);
   const manifestByAsset = new Map(records.map((record) => [
     `${record.name}:${record.checksum}`,
